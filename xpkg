@@ -16,7 +16,12 @@ MCowBQYDK2VwAyEAZzjww6tgKTxshyVCgX3yms1FxLEXzcRP/vHqY3jWt3M=
 -----END PUBLIC KEY-----'
 
 die() { echo "xpkg: $*" >&2; exit 1; }
-sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+sha() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else openssl dgst -sha256 -r "$1" | cut -d' ' -f1; fi   # repli : PureDarwin n'a ni sha256sum ni shasum
+}
+have_sha() { command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v openssl >/dev/null 2>&1; }
 field() { grep "^$1|" "$INDEX" | head -1 | cut -d'|' -f"$2"; }
 exists() { [ -f "$INDEX" ] || die "index absent : lancez d'abord 'xpkg update'"; [ -n "$(field "$1" 1)" ] || die "paquet inconnu : $1 (essayez : xpkg search)"; }
 installed() { [ -f "$DB/$1.list" ]; }
@@ -75,6 +80,7 @@ case "$cmd" in
       exists "$p"
       installed "$p" && { echo "$p : deja installe"; continue; }
       for d in $(field "$p" 4 | tr ',' ' '); do command -v "$d" >/dev/null 2>&1 || die "$p : dependance manquante : $d"; done
+      have_sha || die "$p : aucun outil SHA-256 (sha256sum, shasum ou openssl)"
       s="$DIR/pkgs/$p"
       if [ -z "${XPKG_DIR:-}" ]; then mkdir -p "$DIR/pkgs"; fetch "pkgs/$p" "$s" || die "$p : telechargement impossible"; fi
       [ -f "$s" ] || die "$p : script absent ($s)"
