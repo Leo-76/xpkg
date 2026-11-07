@@ -1,0 +1,102 @@
+#!/bin/sh
+# xpkg : gestionnaire de paquets facon apt pour les kits XFCE/macOS (sh + curl, sans dpkg).
+# xpkg update | list | search MOT | show PAQ | install PAQ... | remove PAQ... | files PAQ | status
+# update telecharge index + index.sig ; la signature Ed25519 est verifiee avec openssl s'il est
+# present (sinon avertissement, l'installation continue). Le SHA256 de chaque paquet est TOUJOURS verifie.
+# XPKG_STRICT=1 : refuse tout si la signature ne peut pas etre verifiee.
+set -eu
+URL=${XPKG_URL:-https://leo-76.github.io/xpkg}
+DB=${XPKG_DB:-$HOME/.local/share/xpkg}
+DIR=${XPKG_DIR:-$DB/cache}
+INDEX=$DIR/index
+ROOTS=".themes .icons .fonts .local .config"
+
+PUBKEY='-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAZzjww6tgKTxshyVCgX3yms1FxLEXzcRP/vHqY3jWt3M=
+-----END PUBLIC KEY-----'
+
+die() { echo "xpkg: $*" >&2; exit 1; }
+sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+field() { grep "^$1|" "$INDEX" | head -1 | cut -d'|' -f"$2"; }
+exists() { [ -f "$INDEX" ] || die "index absent : lancez d'abord 'xpkg update'"; [ -n "$(field "$1" 1)" ] || die "paquet inconnu : $1 (essayez : xpkg search)"; }
+installed() { [ -f "$DB/$1.list" ]; }
+snapshot() { for r in $ROOTS; do [ -e "$HOME/$r" ] && find "$HOME/$r" ! -type d 2>/dev/null; done | sort; true; }
+fetch() { curl -fsSL --retry 2 "$URL/$1" -o "$2"; }
+
+# 0 = signature valide, 1 = invalide, 2 = verification impossible
+verify() {
+  command -v openssl >/dev/null 2>&1 || return 2
+  r=0; k=$(mktemp); printf '%s\n' "$PUBKEY" >"$k"
+  openssl pkeyutl -verify -pubin -inkey "$k" -rawin -in "$1" -sigfile "$2" >/dev/null 2>&1 || r=$?
+  rm -f "$k"
+  [ $r -eq 0 ] && return 0
+  # openssl trop ancien (sans Ed25519) : on ne peut pas conclure
+  openssl pkeyutl -help 2>&1 | grep -q rawin || return 2
+  return 1
+}
+
+cmd=${1:-aide}; [ $# -gt 0 ] && shift
+case "$cmd" in
+  update)
+    [ -n "${XPKG_DIR:-}" ] && { echo "index local : $INDEX"; exit 0; }
+    mkdir -p "$DIR/pkgs"; t=$(mktemp -d)
+    fetch index "$t/index" || die "telechargement de l'index impossible ($URL)"
+    if fetch index.sig "$t/index.sig" 2>/dev/null; then
+      rc=0; verify "$t/index" "$t/index.sig" || rc=$?
+      case $rc in
+        0) echo "signature : valide (Ed25519)" ;;
+        1) rm -rf "$t"; die "SIGNATURE INVALIDE : index refuse" ;;
+        *) [ "${XPKG_STRICT:-0}" = 1 ] && { rm -rf "$t"; die "signature non verifiable (openssl Ed25519 absent)"; }
+           echo "xpkg: avertissement : signature non verifiee (openssl Ed25519 absent) ; SHA256 des paquets verifie quand meme" >&2 ;;
+      esac
+    else
+      [ "${XPKG_STRICT:-0}" = 1 ] && { rm -rf "$t"; die "index.sig absent"; }
+      echo "xpkg: avertissement : index.sig absent" >&2
+    fi
+    mv "$t/index" "$INDEX"; rm -rf "$t"
+    echo "index mis a jour ($(wc -l <"$INDEX" | tr -d ' ') paquets)" ;;
+  list)
+    [ -f "$INDEX" ] || die "index absent : lancez d'abord 'xpkg update'"
+    while IFS='|' read -r n v _ _ d; do
+      if installed "$n"; then m="[installe]"; else m=""; fi
+      printf '%-16s %-8s %s %s\n' "$n" "$v" "$m" "$d"
+    done <"$INDEX" ;;
+  search)
+    [ $# -ge 1 ] || die "usage : xpkg search MOT"; [ -f "$INDEX" ] || die "index absent : lancez d'abord 'xpkg update'"
+    grep -i -- "$1" "$INDEX" | while IFS='|' read -r n v _ _ d; do printf '%-16s %-8s %s\n' "$n" "$v" "$d"; done ;;
+  show)
+    [ $# -ge 1 ] || die "usage : xpkg show PAQ"; exists "$1"
+    echo "Paquet     : $1"; echo "Version    : $(field "$1" 2)"; echo "SHA256     : $(field "$1" 3)"
+    echo "Depend     : $(field "$1" 4)"; echo "Description: $(field "$1" 5)"
+    if installed "$1"; then echo "Etat       : installe ($(wc -l <"$DB/$1.list" | tr -d ' ') fichiers)"; else echo "Etat       : non installe"; fi ;;
+  install)
+    [ $# -ge 1 ] || die "usage : xpkg install PAQ..."
+    for p in "$@"; do
+      exists "$p"
+      installed "$p" && { echo "$p : deja installe"; continue; }
+      for d in $(field "$p" 4 | tr ',' ' '); do command -v "$d" >/dev/null 2>&1 || die "$p : dependance manquante : $d"; done
+      s="$DIR/pkgs/$p"
+      if [ -z "${XPKG_DIR:-}" ]; then mkdir -p "$DIR/pkgs"; fetch "pkgs/$p" "$s" || die "$p : telechargement impossible"; fi
+      [ -f "$s" ] || die "$p : script absent ($s)"
+      [ "$(sha "$s")" = "$(field "$p" 3)" ] || { rm -f "$s"; die "$p : SHA256 incorrect, installation refusee"; }
+      mkdir -p "$DB"; t=$(mktemp -d); snapshot >"$t/avant"
+      echo "Installation de $p $(field "$p" 2)..."
+      sh "$s" install || { echo "xpkg: echec de $p (rc=$?)" >&2; rm -rf "$t"; exit 1; }
+      snapshot >"$t/apres"
+      comm -13 "$t/avant" "$t/apres" >"$DB/$p.list"; rm -rf "$t"
+      echo "$p installe : $(wc -l <"$DB/$p.list" | tr -d ' ') nouveaux fichiers"
+    done ;;
+  remove|purge)
+    [ $# -ge 1 ] || die "usage : xpkg remove PAQ..."
+    for p in "$@"; do
+      installed "$p" || { echo "$p : non installe"; continue; }
+      n=0; while IFS= read -r f; do [ -n "$f" ] && rm -f -- "$f" && n=$((n+1)); done <"$DB/$p.list"
+      for r in $ROOTS; do [ -d "$HOME/$r" ] && find "$HOME/$r" -depth -type d -empty -exec rmdir {} \; 2>/dev/null; done
+      rm -f "$DB/$p.list"; echo "$p retire : $n fichiers supprimes"
+    done ;;
+  files)
+    [ $# -ge 1 ] || die "usage : xpkg files PAQ"; installed "$1" || die "$1 non installe"; cat "$DB/$1.list" ;;
+  status)
+    for f in "$DB"/*.list; do [ -f "$f" ] && echo "$(basename "$f" .list) ($(wc -l <"$f" | tr -d ' ') fichiers)"; done; true ;;
+  *) echo "usage : xpkg update | list | search MOT | show PAQ | install PAQ... | remove PAQ... | files PAQ | status" ;;
+esac

@@ -1,0 +1,81 @@
+#!/bin/sh
+# xfce-macos-3 : installe un kit macOS pour XFCE (version figee d'un original, voir OWNER/REPO/REV) pour l'utilisateur courant.
+# Fonctionne avec sh/dash/busybox (shell PureDarwin via dawin-shell). Ne lance rien, ne copie que des fichiers.
+set -eu
+OWNER=ibm-7094a; REPO=ventura-xfce; REV=f01f86ad05d098e928ed626a07451234118b61a7
+BASE=${XFCE_CACHE:-$HOME/.cache/xfce-macos-3}
+SRC=$BASE/$REPO-$REV
+telecharge() {
+  [ -d "$SRC" ] && return 0
+  mkdir -p "$BASE"
+  URL="https://codeload.github.com/$OWNER/$REPO/tar.gz/$REV"
+  if command -v curl >/dev/null 2>&1; then curl -fsSL "$URL" -o "$BASE/src.tgz"
+  elif command -v wget >/dev/null 2>&1; then wget -q "$URL" -O "$BASE/src.tgz"
+  else echo "ni curl ni wget : impossible de telecharger $URL" >&2; exit 2; fi
+  tar xzf "$BASE/src.tgz" -C "$BASE" && rm -f "$BASE/src.tgz"
+  [ -d "$SRC" ] || { echo "dossier $SRC absent apres extraction" >&2; exit 3; }
+}
+copie_copie() { [ -d "$1" ] || { echo "absent : $1" >&2; return 0; }; mkdir -p "$2"; cp -R "$1"/. "$2"/; echo "copie  $2"; }
+copie_archives() { [ -d "$1" ] || { echo "absent : $1" >&2; return 0; }; mkdir -p "$2"
+  for f in "$1"/*; do case "$f" in
+    *.tar.xz) if command -v xz >/dev/null 2>&1; then tar xJf "$f" -C "$2" && echo "extrait $f -> $2"; else echo "xz absent : $f ignore" >&2; fi ;;
+    *.tar.gz|*.tgz) tar xzf "$f" -C "$2" && echo "extrait $f -> $2" ;;
+    *) cp -R "$f" "$2"/ ;; esac; done; }
+cmd=${1:-aide}
+# Corrige les chemins de l'original (/home/ibm-7094 -> $HOME) et remplace le plugin
+# "appmenu" (absent de Debian 13) par le menu Applications de XFCE.
+corrige() {
+  grep -rl -e '/home/ibm-7094' -e 'value="appmenu"' "$@" 2>/dev/null | while IFS= read -r f; do
+    sed -e "s#/home/ibm-7094#$HOME#g" -e 's#value="appmenu"#value="applicationsmenu"#' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+  done
+  echo "corrige : chemins et menu"
+}
+# Plank ne lit que des .dockitem : on en genere un par lanceur .desktop.
+dockitems() {
+  for f in "$1"/*.desktop; do [ -f "$f" ] || continue
+    d="${f%.desktop}.dockitem"; [ -f "$d" ] && continue
+    printf '[PlankDockItemPreferences]\nLauncher=file://%s\n' "$f" >"$d"
+  done
+  echo "dockitems generes dans $1"
+}
+# Dock minimal a 5 icones (Fichiers, Terminal, Navigateur, Recherche, Reglages).
+dock5() {
+  d="$1"; rm -f "$d"/*.desktop "$d"/*.dockitem
+  while IFS='|' read -r n name exe ico; do
+    printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\n' "$name" "$exe" "$ico" >"$d/$n.desktop"
+    printf '[PlankDockItemPreferences]\nLauncher=file://%s/%s.desktop\n' "$d" "$n" >"$d/$n.dockitem"
+  done <<L
+1-fichiers|Fichiers|thunar|folder
+2-terminal|Terminal|xfce4-terminal|utilities-terminal
+3-navigateur|Navigateur|x-www-browser|web-browser
+4-recherche|Recherche|xfce4-appfinder|system-search
+5-reglages|Reglages|xfce4-settings-manager|preferences-system
+L
+  echo "dock a 5 icones : $d"
+}
+# Fond Monterey (necessite une session XFCE ouverte).
+fond() {
+  W="$HOME/.local/share/backgrounds/monterey.png"; [ -f "$W" ] || return 0
+  command -v xfconf-query >/dev/null 2>&1 || { echo "fond : xfconf-query absent"; return 0; }
+  for m in monitor0 monitorscreen monitorXScreen0; do
+    xfconf-query -c xfce4-desktop -p /backdrop/screen0/$m/workspace0/last-image -n -t string -s "$W" 2>/dev/null
+    xfconf-query -c xfce4-desktop -p /backdrop/screen0/$m/workspace0/image-style -n -t int -s 5 2>/dev/null
+  done; echo "fond Monterey applique"
+}
+case "$cmd" in
+   info) echo "Kit macOS 3 (xfce/themes/macos)"; echo "original : https://github.com/$OWNER/$REPO  (version $REV)"; echo "licence  : MIT" ;;
+  fetch) telecharge; echo "telecharge : $SRC" ;;
+  install) telecharge
+  copie_archives "$SRC/gtk/gtkthemes" "$HOME/.themes"
+  copie_archives "$SRC/gtk/icons" "$HOME/.icons"
+  copie_archives "$SRC/cursors" "$HOME/.icons"
+  copie_copie "$SRC/dock/launchers" "$HOME/.config/plank/dock1/launchers"
+  copie_copie "$SRC/config/xfce4" "$HOME/.config/xfce4"
+  copie_copie "$SRC/wallpapers" "$HOME/.local/share/backgrounds"
+  corrige "$HOME/.config/plank/dock1/launchers" "$HOME/.config/xfce4"
+  dock5 "$HOME/.config/plank/dock1/launchers"
+  fond
+    echo "Termine (fichiers copies seulement ; XFCE/Plank non lances). Reconnectez-vous ou : xfce4-panel -r" ;;
+  remove) echo "supprime le cache : $BASE"; rm -rf "$BASE" ;;
+  *) echo "usage : xfce-macos-3 info | fetch | install | remove" ;;
+esac

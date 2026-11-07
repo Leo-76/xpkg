@@ -1,0 +1,42 @@
+#!/bin/sh
+# xfce-macos-1 : installe un kit macOS pour XFCE (version figee d'un original, voir OWNER/REPO/REV) pour l'utilisateur courant.
+# Fonctionne avec sh/dash/busybox (shell PureDarwin via dawin-shell). Ne lance rien, ne copie que des fichiers.
+set -eu
+OWNER=libredeb; REPO=xfce4-macOS_skinpack; REV=64b812aacb4ab6c2616adff8e9a8da3751f07098
+BASE=${XFCE_CACHE:-$HOME/.cache/xfce-macos-1}
+SRC=$BASE/$REPO-$REV
+telecharge() {
+  [ -d "$SRC" ] && return 0
+  mkdir -p "$BASE"
+  URL="https://codeload.github.com/$OWNER/$REPO/tar.gz/$REV"
+  if command -v curl >/dev/null 2>&1; then curl -fsSL "$URL" -o "$BASE/src.tgz"
+  elif command -v wget >/dev/null 2>&1; then wget -q "$URL" -O "$BASE/src.tgz"
+  else echo "ni curl ni wget : impossible de telecharger $URL" >&2; exit 2; fi
+  tar xzf "$BASE/src.tgz" -C "$BASE" && rm -f "$BASE/src.tgz"
+  [ -d "$SRC" ] || { echo "dossier $SRC absent apres extraction" >&2; exit 3; }
+}
+copie_copie() { [ -d "$1" ] || { echo "absent : $1" >&2; return 0; }; mkdir -p "$2"; cp -R "$1"/. "$2"/; echo "copie  $2"; }
+copie_archives() { [ -d "$1" ] || { echo "absent : $1" >&2; return 0; }; mkdir -p "$2"
+  for f in "$1"/*; do case "$f" in
+    *.tar.xz) if command -v xz >/dev/null 2>&1; then tar xJf "$f" -C "$2" && echo "extrait $f -> $2"; else echo "xz absent : $f ignore" >&2; fi ;;
+    *.tar.gz|*.tgz) tar xzf "$f" -C "$2" && echo "extrait $f -> $2" ;;
+    *) cp -R "$f" "$2"/ ;; esac; done; }
+cmd=${1:-aide}
+case "$cmd" in
+   info) echo "Kit macOS 1 (xfce4/macos/themes-2)"; echo "original : https://github.com/$OWNER/$REPO  (version $REV)"; echo "licence  : AUCUNE (tous droits reserves : rien n'est copie ici, tout est telecharge de l'original)" ;;
+  fetch) telecharge; echo "telecharge : $SRC" ;;
+  install) telecharge
+  copie_copie "$SRC/resources/Gtk" "$HOME/.themes"
+  copie_copie "$SRC/resources/icons" "$HOME/.icons"
+  copie_copie "$SRC/resources/fonts" "$HOME/.fonts"
+  copie_copie "$SRC/resources/plank" "$HOME/.local/share/plank/themes"
+  copie_copie "$SRC/resources/backgrounds" "$HOME/.local/share/backgrounds"
+  copie_copie "$SRC/resources/bin" "$HOME/.local/bin"
+  copie_copie "$SRC/resources/sounds" "$HOME/.local/share/sounds/macos"
+  copie_copie "$SRC/configurations/xfce4" "$HOME/.config/xfce4"
+  copie_copie "$SRC/configurations/autostart" "$HOME/.config/autostart"
+  copie_copie "$SRC/configurations/lightpad" "$HOME/.config/lightpad"
+    echo "Termine (fichiers copies seulement ; XFCE/Plank non lances). Reconnectez-vous ou : xfce4-panel -r" ;;
+  remove) echo "supprime le cache : $BASE"; rm -rf "$BASE" ;;
+  *) echo "usage : xfce-macos-1 info | fetch | install | remove" ;;
+esac
