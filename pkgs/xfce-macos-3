@@ -28,7 +28,12 @@ corrige() {
   grep -rl -e '/home/ibm-7094' -e 'value="appmenu"' "$@" 2>/dev/null | while IFS= read -r f; do
     sed -e "s#/home/ibm-7094#$HOME#g" -e 's#value="appmenu"#value="applicationsmenu"#' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
   done
-  echo "corrige : chemins et menu"
+  if ! ls /usr/lib/*/xfce4/panel/plugins/libpower-manager-plugin.so /usr/lib/xfce4/panel/plugins/libpower-manager-plugin.so >/dev/null 2>&1; then
+    grep -rl 'value="power-manager-plugin"' "$@" 2>/dev/null | while IFS= read -r f; do
+      sed 's#value="power-manager-plugin"#value="separator"#' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+    done
+  fi
+  echo "corrige : chemins, menu, plugins absents"
 }
 # Plank ne lit que des .dockitem : on en genere un par lanceur .desktop.
 dockitems() {
@@ -65,6 +70,31 @@ fond() {
   done
   echo "fond applique : $(basename "$W")"
 }
+# Rejoue le fond a chaque ouverture de session (l'install hors session ne peut pas l'appliquer).
+fond_auto() {
+  mkdir -p "$HOME/.local/bin" "$HOME/.config/autostart"
+  cat >"$HOME/.local/bin/xfce-macos-fond" <<'EOS'
+#!/bin/sh
+B="$HOME/.local/share/backgrounds"; W=""
+for f in ventura-light.jpeg ventura-light.jpg ventura.jpg monterey.png; do [ -f "$B/$f" ] && { W="$B/$f"; break; }; done
+[ -n "$W" ] || exit 0
+for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -u "$(id -u)" xfdesktop >/dev/null && break; sleep 1; done
+sleep 2
+set_all() {
+  for m in $(xrandr 2>/dev/null | awk '/ connected/{print $1}') screen monitor0; do
+    for w in 0 1 2 3; do
+      b="/backdrop/screen0/monitor$m/workspace$w"
+      xfconf-query -c xfce4-desktop -p $b/last-image -n -t string -s "$W"
+      xfconf-query -c xfce4-desktop -p $b/image-style -n -t int -s 5
+    done
+  done
+}
+set_all 2>/dev/null; xfdesktop --reload 2>/dev/null; exit 0
+EOS
+  chmod +x "$HOME/.local/bin/xfce-macos-fond"
+  printf '[Desktop Entry]\nType=Application\nName=Fond macOS\nExec=%s/.local/bin/xfce-macos-fond\nX-GNOME-Autostart-enabled=true\n' "$HOME" >"$HOME/.config/autostart/xfce-macos-fond.desktop"
+  echo "fond : application automatique a la connexion"
+}
 case "$cmd" in
    info) echo "Kit macOS 3 (xfce/themes/macos)"; echo "original : https://github.com/$OWNER/$REPO  (version $REV)"; echo "licence  : MIT" ;;
   fetch) telecharge; echo "telecharge : $SRC" ;;
@@ -77,7 +107,7 @@ case "$cmd" in
   copie_copie "$SRC/wallpapers" "$HOME/.local/share/backgrounds"
   corrige "$HOME/.config/plank/dock1/launchers" "$HOME/.config/xfce4"
   dock5 "$HOME/.config/plank/dock1/launchers"
-  fond
+  fond; fond_auto
     echo "Termine (fichiers copies seulement ; XFCE/Plank non lances). Reconnectez-vous ou : xfce4-panel -r" ;;
   remove) echo "supprime le cache : $BASE"; rm -rf "$BASE" ;;
   *) echo "usage : xfce-macos-3 info | fetch | install | remove" ;;
