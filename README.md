@@ -25,3 +25,11 @@ Testé (Mac, HOME temporaire, serveur HTTP local) : update signé, index falsifi
 Non testé : depuis GitHub Pages en HTTPS sur PureDarwin, rendu XFCE sur PureDarwin. Rendu validé seulement sur Debian 13 + XFCE + Plank + X11 (voir Leo-76/xfce-apt).
 
 Après modification de `index` ou `pkgs/` : `openssl pkeyutl -sign -inkey CLE.key -rawin -in index -out index.sig`.
+
+## PureDarwin (captures)
+
+Système cible : PureDarwin 20.5.0 (XNU, `uname -a` testé dans le terminal ; barre « Applications », dock à 5 icônes).
+`xpkg` n'y a **pas encore été lancé** (saisie clavier automatique peu fiable dans QEMU) : seules ces deux captures du système sont réelles.
+
+![terminal](captures/puredarwin-terminal.png)
+![bureau](captures/puredarwin-bureau.png)
