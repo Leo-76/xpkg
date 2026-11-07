@@ -53,14 +53,14 @@ dock5() {
 L
   echo "dock a 5 icones : $d"
 }
-# Fond Monterey (necessite une session XFCE ouverte).
+# Fond Ventura (repli Monterey) ; necessite une session XFCE ouverte.
 fond() {
-  W="$HOME/.local/share/backgrounds/monterey.png"; [ -f "$W" ] || return 0
+  W="$HOME/.local/share/backgrounds/ventura.jpg"; [ -f "$W" ] || W="$HOME/.local/share/backgrounds/monterey.png"; [ -f "$W" ] || return 0
   command -v xfconf-query >/dev/null 2>&1 || { echo "fond : xfconf-query absent"; return 0; }
   for m in monitor0 monitorscreen monitorXScreen0; do
     xfconf-query -c xfce4-desktop -p /backdrop/screen0/$m/workspace0/last-image -n -t string -s "$W" 2>/dev/null
     xfconf-query -c xfce4-desktop -p /backdrop/screen0/$m/workspace0/image-style -n -t int -s 5 2>/dev/null
-  done; echo "fond Monterey applique"
+  done; echo "fond applique : $(basename "$W")"
 }
 case "$cmd" in
    info) echo "Kit macOS 3 (xfce/themes/macos)"; echo "original : https://github.com/$OWNER/$REPO  (version $REV)"; echo "licence  : MIT" ;;
