@@ -33,3 +33,7 @@ Système cible : PureDarwin 20.5.0 (XNU, `uname -a` testé dans le terminal ; ba
 
 ![terminal](captures/puredarwin-terminal.png)
 ![bureau](captures/puredarwin-bureau.png)
+
+![bureau avec dock](captures/puredarwin-bureau-dock-2026-11-09.jpg)
+
+Bureau de l'image PureDarwin 20.5 sous QEMU (xfwm4 + panneau et dock `dawin-bureau`, capture du 9 novembre 2026, sans réseau : « pas de réseau » dans la barre). Cette capture ne montre pas `xpkg` en marche. Le fond d'écran est celui d'Apple ; il n'est pas fourni par ce dépôt.
